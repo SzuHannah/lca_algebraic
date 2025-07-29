@@ -177,7 +177,8 @@ def test_enum_values_are_enforced():
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [m for m in bw.methods if "ILCD 1.0.8 2016" in str(m) and "no LT" in str(m)][1]
+    # Use any available method for the check
+    climate = next(iter(bw.methods))
 
     with pytest.raises(Exception) as exc:
         compute_impacts(act, climate, p1="bar")
@@ -239,6 +240,17 @@ def test_simplify_model(data):
 
     res = sobol_simplify_model(m2, [data.ibio1], simple_products=True)[0]
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
+
+
+def test_simplify_lambdas(data):
+    p1 = newFloatParam("p1", 1, min=1, max=2)
+    p2 = newFloatParam("p2", 1, min=0.001, max=0.001)
+
+    expr = p1 * (p1 + 0.001 * p1 + p2)
+    lambd = lambdify_expr(expr)
+
+    res = sobol_simplify_lambdas([lambd], [data.ibio1], simple_products=False)[0]
+    assert res.expr.__repr__() == "1.0*p1**2"
 
 
 def test_db_params_lca(data):
