@@ -29,11 +29,15 @@ You can display graphs of distributions of impacts :
 
 ## Simplified models
 
-```{eval-rst} 
+```{eval-rst}
 .. autofunction:: lca_algebraic.sobol_simplify_model
 ```
 
-```{eval-rst} 
+```{eval-rst}
+.. autofunction:: lca_algebraic.sobol_simplify_lambdas
+```
+
+```{eval-rst}
 .. autofunction:: lca_algebraic.compare_simplified
 ```
 

@@ -815,14 +815,23 @@ def sobol_simplify_model(
     simple_products=True,
 ) -> List[LambdaWithParamNames]:
     """
-    Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
-    Then generates simplified models for those parameters.
+    Compute Sobol indices for a parametric model and build simplified
+    SymPy expressions of the impacts.
 
-    The other parameters are replaced by their mean or median values.
+    ``sobol_simplify_model`` samples the variable parameters using a
+    Saltelli sequence and evaluates the full model to compute first order
+    Sobol indices. Parameters are ranked by their contribution to impact
+    variance and only the parameters needed to explain ``min_ratio`` of the
+    variance are kept. Minor parameters are replaced by their median (or
+    mean) value and the resulting expression is simplified. Terms
+    contributing to less than 1 % of the variation are dropped from sums
+    and products and all numeric values are rounded to ``num_digits``
+    decimals.
 
-    Also the term contributing to less than 1% of variation in sums and products are removed.
-
-    Decimal numbers are rounded to 3 digits.
+    The function currently expects ``model`` to be the root
+    :class:`brightway2.Activity` of an inventory created with
+    ``lca_algebraic``. Custom Python LCA functions must therefore be
+    converted into such a parametric model before they can be analysed.
 
     Parameters
     ----------
@@ -954,6 +963,76 @@ def sobol_simplify_model(
 
     return res
 
+
+
+def sobol_simplify_lambdas(
+    lambdas: List[LambdaWithParamNames],
+    methods,
+    *,
+    min_ratio=0.8,
+    functional_unit=1,
+    n=DEFAULT_N * 2,
+    var_params=None,
+    fixed_mode=FixedParamMode.MEDIAN,
+    num_digits=3,
+    simple_sums=True,
+    simple_products=True,
+) -> List[LambdaWithParamNames]:
+    """Simplify a list of precompiled :class:`LambdaWithParamNames`.
+
+    This helper mirrors :func:`sobol_simplify_model` but operates on a
+    list of already compiled expressions, allowing any custom model to
+    be analysed without using a Brightway database.
+    """
+
+    if var_params is None:
+        var_params = _variable_params().values()
+
+    var_param_names = [p.name for p in var_params]
+
+    problem, params, Y = _stochastics(
+        lambdas, methods, n, var_params=var_params, functional_unit=functional_unit
+    )
+    sob = _sobols(methods, problem, Y)
+    s1 = sob.s1
+
+    exprs = [l.expr for l in lambdas]
+    res = []
+    for imethod, method in enumerate(methods):
+        print("> Method : ", method_name(method))
+
+        sum_var = 0
+        sorted_idx = sorted(range(len(var_param_names)), key=lambda i: s1[i, imethod], reverse=True)
+        selected = []
+        sobols = {}
+        for idx in sorted_idx:
+            sum_var += s1[idx, imethod]
+            name = var_param_names[idx]
+            selected.append(name)
+            sobols[name] = s1[idx, imethod]
+            if sum_var > min_ratio:
+                break
+
+        expr = exprs[imethod]
+        fixed = [p for p in _param_registry().values() if p.name not in selected]
+        expr = _replace_fixed_params(expr, fixed, fixed_mode=fixed_mode)
+        expr = simplify(expr)
+        expr = _round_expr(expr, num_digits)
+
+        lambd = LambdaWithParamNames(expr, params=selected, sobols=sobols)
+        expanded_params = _complete_and_expand_params(params, lambd.params, asSymbols=False)
+        expanded_params = _filter_param_values(expanded_params, lambd.expanded_params)
+
+        if simple_sums:
+            expr = _simplify_sums(expr, expanded_params)
+        if simple_products:
+            expr = _simplify_products(expr, expanded_params)
+
+        expr = simplify(expr)
+        display(prettify(expr))
+        res.append(LambdaWithParamNames(expr, params=selected, sobols=sobols))
+
+    return res
 
 TERM_MIN_LEVEL = 0.01
 
